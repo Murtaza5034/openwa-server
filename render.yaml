@@ -1,0 +1,125 @@
+# OpenWA on Render — Blueprint Deployment
+# =========================================
+#
+# PREREQUISITES:
+#   1. Push this repo to GitHub
+#   2. Go to https://dashboard.render.com/blueprints → Connect repo
+#   3. Set API_MASTER_KEY (generate: openssl rand -hex 32)
+#   4. ⚠️ Upgrade web service to Starter ($7/mo) for always-on!
+#      Free tier sleeps after 15 min, which DISCONNECTS WhatsApp.
+#   5. After first deploy, set DATABASE_SYNCHRONIZE=false for safety
+#
+# AFTER DEPLOY:
+#   1. Get your Render URL: https://openwa-api.onrender.com
+#   2. Update Supabase: npx supabase secrets set OPENWA_BASE_URL=<your-render-url>
+#   3. Update Supabase: npx supabase secrets set OPENWA_API_KEY=<your-api-master-key>
+#   4. Visit the dashboard to scan QR code and connect WhatsApp
+
+services:
+  # ──────────────────────────────────────────────
+  # OpenWA API — WhatsApp API Server (port 2785)
+  # ──────────────────────────────────────────────
+  - type: web
+    name: openwa-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      # ── Core ──
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 2785
+      - key: API_PORT
+        value: 2785
+      - key: BIND_HOST
+        value: 0.0.0.0
+      - key: DOMAIN
+        sync: false
+        # ⚡ After deploy, set to https://openwa-api.onrender.com
+      - key: BASE_URL
+        sync: false
+        # ⚡ Same as DOMAIN — your Render service URL
+      - key: DASHBOARD_URL
+        sync: false
+        # ⚡ Same as DOMAIN
+      - key: LOG_LEVEL
+        value: info
+
+      # ── WhatsApp Engine ──
+      - key: AUTO_START_SESSIONS
+        value: "true"
+      - key: MAX_CONCURRENT_SESSIONS
+        value: "1"
+      - key: ENGINE
+        value: whatsapp-web.js
+      - key: PUPPETEER_HEADLESS
+        value: "true"
+      # PUPPETEER_EXECUTABLE_PATH is already set in the Dockerfile
+      - key: ALLOW_DEV_API_KEY
+        value: "false"
+
+      # ── Database (PostgreSQL) ──
+      - key: DATABASE_TYPE
+        value: postgres
+      - key: DATABASE_HOST
+        fromDatabase:
+          name: openwa-postgres
+          property: host
+      - key: DATABASE_PORT
+        fromDatabase:
+          name: openwa-postgres
+          property: port
+      - key: DATABASE_USERNAME
+        fromDatabase:
+          name: openwa-postgres
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: openwa-postgres
+          property: password
+      - key: DATABASE_NAME
+        fromDatabase:
+          name: openwa-postgres
+          property: database
+      - key: DATABASE_SYNCHRONIZE
+        value: "true"
+        # ⚠️ Set to "false" after first deploy to prevent accidental schema drops
+      - key: MAIN_DATABASE_SYNCHRONIZE
+        value: "true"
+        # ⚠️ Set to "false" after first deploy
+
+      # ── Security ──
+      - key: API_MASTER_KEY
+        sync: false
+        # 🔑 REQUIRED: Generate with: openssl rand -hex 32
+        # This becomes the X-API-Key header for all API calls
+      - key: CORS_ORIGINS
+        value: "*"
+
+      # ── Storage ──
+      - key: STORAGE_TYPE
+        value: local
+      - key: MEDIA_DOWNLOAD_MAX_BYTES
+        value: "52428800"
+
+      # ── Rate Limiting ──
+      - key: RATE_LIMIT_SHORT_LIMIT
+        value: "20"
+      - key: RATE_LIMIT_MEDIUM_LIMIT
+        value: "200"
+      - key: RATE_LIMIT_LONG_LIMIT
+        value: "2000"
+
+# ──────────────────────────────────────────────
+# PostgreSQL Database (Free 1GB)
+# ──────────────────────────────────────────────
+databases:
+  - name: openwa-postgres
+    databaseName: openwa
+    user: openwa
+    plan: free
+    # ⚠️ Upgrade the WEB SERVICE to Starter ($7/mo) for no-sleep!
+    # The free database is fine, but the free web service sleeps.
